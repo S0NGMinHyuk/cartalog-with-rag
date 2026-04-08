@@ -2,15 +2,18 @@ package com.example.spring_ai_tutorial.service;
 
 import com.example.spring_ai_tutorial.domain.dto.DocumentSearchResultDto;
 import com.example.spring_ai_tutorial.exception.DocumentProcessingException;
-import com.example.spring_ai_tutorial.repository.InMemoryDocumentVectorStore;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.ai.document.Document;
+import org.springframework.ai.reader.tika.TikaDocumentReader;
+import org.springframework.ai.transformer.splitter.TokenTextSplitter;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -26,46 +29,75 @@ import java.util.stream.IntStream;
 public class RagService {
 
 //    private final ChromaDocumentVectorStore vectorStore;
-    private final InMemoryDocumentVectorStore vectorStore;
+//    private final InMemoryDocumentVectorStore vectorStore;
     private final ChatService chatService;
+    private final VectorStore vectorStore;
 
-    public RagService(InMemoryDocumentVectorStore vectorStore, ChatService chatService) {
+//    public RagService(InMemoryDocumentVectorStore vectorStore, ChatService chatService) {
+//        this.vectorStore = vectorStore;
+//        this.chatService = chatService;
+//    }
+
+    public RagService(VectorStore vectorStore, ChatService chatService) {
         this.vectorStore = vectorStore;
         this.chatService = chatService;
     }
 
     /**
-     * PDF 파일을 업로드하여 벡터 스토어에 추가하는 작업 수행
+     * PDF 업로드 및 Qdrant 저장
      */
     public String uploadPdfFile(File file, String originalFilename) {
-        // UUID로 고유 ID 생성
         String documentId = UUID.randomUUID().toString();
-        log.info("PDF 문서 업로드 시작. 파일: {}, ID: {}", originalFilename, documentId);
-
-        // 파일명·업로드 시각을 메타데이터로 구성
-        // -> 나중에 검색 결과에서 "어떤 파일에서 나온 내용인지"와 같은 출처를 표시하는 용도로 사용 가능
-        Map<String, Object> docMetadata = new HashMap<>();
-        docMetadata.put("originalFilename", originalFilename != null ? originalFilename : "");
-        docMetadata.put("uploadTime", System.currentTimeMillis());
+        log.info("Qdrant 저장 시작. 파일: {}, ID: {}", originalFilename, documentId);
 
         try {
-            // [Step 3 ~ 5] InMemoryDocumentVectorStore에 위임하여 PDF 텍스트 추출 → 청킹 → 임베딩 → 저장을 순차 처리
-            vectorStore.addDocumentFile(documentId, file, docMetadata);
-            log.info("PDF 문서 업로드 완료. ID: {}", documentId);
+            // 1. PDF 읽기 (Tika 등 사용)
+            TikaDocumentReader reader = new TikaDocumentReader(new FileSystemResource(file));
+            List<Document> documents = reader.get();
+
+            // 2. 메타데이터 주입
+            for (Document doc : documents) {
+                doc.getMetadata().put("originalFilename", originalFilename);
+                doc.getMetadata().put("documentId", documentId);
+            }
+
+            // 3. 텍스트 분할 (TokenTextSplitter 권장)
+            TokenTextSplitter splitter = new TokenTextSplitter();
+            List<Document> splitDocuments = splitter.apply(documents);
+
+            // 4. Qdrant에 저장
+            vectorStore.add(splitDocuments);
+
+            log.info("성공적으로 Qdrant에 저장되었습니다. 총 청크 수: {}", splitDocuments.size());
             return documentId;
         } catch (Exception e) {
-            log.error("문서 처리 중 오류 발생: {}", e.getMessage(), e);
-            throw new DocumentProcessingException("문서 처리 중 오류: " + e.getMessage(), e);
+            throw new DocumentProcessingException("Qdrant 저장 중 오류", e);
         }
     }
 
     /**
-     * [질의 Step 2] 질문과 유사한 문서 청크를 벡터 스토어에서 검색함
+     * Qdrant 유사도 검색
      */
     public List<DocumentSearchResultDto> retrieve(String question, int maxResults) {
-        log.debug("검색 시작: '{}', 최대 결과 수: {}", question, maxResults);
-        // [질의 Step 3] InMemoryDocumentVectorStore에 위임하여 실제 유사도 계산 및 결과 변환을 수행함
-        return vectorStore.similaritySearch(question, maxResults);
+        log.debug("유사도 검색 수행 중: {}", question);
+
+        // Spring AI 표준 검색 방식 사용
+        List<Document> results = vectorStore.similaritySearch(
+                SearchRequest.builder()
+                        .query(question)
+                        .topK(maxResults)
+                        .build()
+        );
+
+        // 기존에 사용하시던 DTO 형식으로 변환
+        return results.stream()
+                .map(doc -> new DocumentSearchResultDto(
+                        doc.getId(),           // 1. 문서 ID (String)
+                        doc.getText(),         // 2. 내용 (String)
+                        doc.getMetadata(),     // 3. 메타데이터 (Map)
+                        doc.getScore()         // 4. 유사도 점수 (Double) - 1.0.0-M6 기준 getScore() 사용 가능
+                ))
+                .collect(Collectors.toList());
     }
 
     /**

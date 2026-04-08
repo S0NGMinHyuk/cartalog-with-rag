@@ -2,6 +2,7 @@ package com.example.spring_ai_tutorial.service;
 
 import com.example.spring_ai_tutorial.exception.DocumentProcessingException;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.stereotype.Service;
@@ -24,7 +25,7 @@ public class DocumentProcessingService {
      */
     public String extractTextFromPdf(File pdfFile) {
         log.debug("PDF 텍스트 추출 시작: {}", pdfFile.getName());
-        try (PDDocument document = PDDocument.load(pdfFile)) {
+        try (PDDocument document = Loader.loadPDF(pdfFile)) {
             log.debug("PDF 문서 로드 성공: {}페이지", document.getNumberOfPages());
             String text = new PDFTextStripper().getText(document);
             log.debug("PDF 텍스트 추출 완료: {} 문자", text.length());

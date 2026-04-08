@@ -27,11 +27,14 @@ dependencies {
     // Spring AI 의존성
     implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter'
 
-    // Chroma Vector DB 의존성
-//    implementation 'org.springframework.ai:spring-ai-chroma-store-spring-boot-starter'
+    // Qdrant Vector DB 의존성
+    implementation 'org.springframework.ai:spring-ai-qdrant-store-spring-boot-starter'
+
+    // 2. PDF 및 다양한 문서에서 텍스트를 추출하기 위한 Tika 리더
+    implementation 'org.springframework.ai:spring-ai-tika-document-reader'
 
     // PDF 처리 라이브러리
-    implementation 'org.apache.pdfbox:pdfbox:2.0.27'
+//    implementation 'org.apache.pdfbox:pdfbox:2.0.27'
 
     // Swagger/OpenAPI 의존성
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
@@ -45,6 +48,11 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
     testCompileOnly 'org.projectlombok:lombok'
     testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+repositories {
+    mavenCentral()
+    maven { url 'https://repo.spring.io/milestone' } // 반드시 추가!
 }
 
 dependencyManagement {
